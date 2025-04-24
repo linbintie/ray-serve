@@ -3,9 +3,12 @@ import os
 from typing import Dict, Optional, List
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from starlette.requests import Request
 from starlette.responses import StreamingResponse, JSONResponse
+
+# For VLLM Metrics
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from ray import serve
 
@@ -19,10 +22,8 @@ from vllm.entrypoints.openai.protocol import (
 )
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_models import (
-    BaseModelPath,
     LoRAModulePath,
-    PromptAdapterPath,
-    OpenAIServingModels,
+    PromptAdapterPath
 )
 
 from vllm.utils import FlexibleArgumentParser
@@ -32,15 +33,20 @@ logger = logging.getLogger("ray.serve")
 
 app = FastAPI()
 
+@app.get("/metrics")
+def metrics():
+    """
+    Dieser Endpoint gibt alle Metriken aus der Default-Registry
+    im Prometheus-Format zurück. Wenn vLLM seine Metriken korrekt
+    registriert, erscheinen sie hier unter `vllm:...`.
+    
+    Wichtig:
+    - Wenn du mehrere Ray-Replikas (oder mehrere Prozesse) hast,
+      brauchst du evtl. die Multiprozess-Sammlung. Siehe unten.
+    """
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
-@serve.deployment(
-    autoscaling_config={
-        "min_replicas": 1,
-        "max_replicas": 10,
-        "target_ongoing_requests": 5,
-    },
-    max_ongoing_requests=10,
-)
+@serve.deployment(name="VLLMDeployment")
 @serve.ingress(app)
 class VLLMDeployment:
     def __init__(
@@ -52,6 +58,9 @@ class VLLMDeployment:
         request_logger: Optional[RequestLogger] = None,
         chat_template: Optional[str] = None,
     ):
+        # Löschen der Umgebungsvariable 'CUDA_VISIBLE_DEVICES'
+        if 'CUDA_VISIBLE_DEVICES' in os.environ:
+            del os.environ['CUDA_VISIBLE_DEVICES']
         logger.info(f"Starting with engine args: {engine_args}")
         self.openai_serving_chat = None
         self.engine_args = engine_args
@@ -74,25 +83,19 @@ class VLLMDeployment:
         if not self.openai_serving_chat:
             model_config = await self.engine.get_model_config()
             # Determine the name of the served model for the OpenAI client.
-            models = OpenAIServingModels(
-                self.engine,
-                model_config,
-                [
-                    BaseModelPath(
-                        name=self.engine_args.model, model_path=self.engine_args.model
-                    )
-                ],
-                lora_modules=self.lora_modules,
-                prompt_adapters=self.prompt_adapters,
-            )
+            if self.engine_args.served_model_name is not None:
+                served_model_names = self.engine_args.served_model_name
+            else:
+                served_model_names = [self.engine_args.model]
             self.openai_serving_chat = OpenAIServingChat(
                 self.engine,
                 model_config,
-                models,
+                served_model_names,
                 self.response_role,
+                lora_modules=self.lora_modules,
+                prompt_adapters=self.prompt_adapters,
                 request_logger=self.request_logger,
                 chat_template=self.chat_template,
-                chat_template_content_format="auto",
             )
         logger.info(f"Request: {request}")
         generator = await self.openai_serving_chat.create_chat_completion(
@@ -136,26 +139,11 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
 
     Supported engine arguments: https://docs.vllm.ai/en/latest/models/engine_args.html.
     """  # noqa: E501
-    if "accelerator" in cli_args.keys():
-        accelerator = cli_args.pop("accelerator")
-    else:
-        accelerator = "GPU"
     parsed_args = parse_vllm_args(cli_args)
     engine_args = AsyncEngineArgs.from_cli_args(parsed_args)
     engine_args.worker_use_ray = True
 
-    tp = engine_args.tensor_parallel_size
-    logger.info(f"Tensor parallelism = {tp}")
-    pg_resources = []
-    pg_resources.append({"CPU": 1})  # for the deployment replica
-    for i in range(tp):
-        pg_resources.append({"CPU": 1, accelerator: 1})  # for the vLLM actors
-
-    # We use the "STRICT_PACK" strategy below to ensure all vLLM actors are placed on
-    # the same Ray node.
-    return VLLMDeployment.options(
-        placement_group_bundles=pg_resources, placement_group_strategy="STRICT_PACK"
-    ).bind(
+    return VLLMDeployment.bind(
         engine_args,
         parsed_args.response_role,
         parsed_args.lora_modules,
@@ -164,12 +152,20 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
         parsed_args.chat_template,
     )
 
-model = build_app({
-    "model": os.environ.get("MODEL_ID"),
-    "tensor-parallel-size": os.environ.get("TENSOR_PARALLELISM"),
-    "pipeline-parallel-size": os.environ.get("PIPELINE_PARALLELISM"),
-    "dtype": "auto",
-    "trust-remote-code": "True",
-    "gpu-memory-utilization": os.environ.get("GPU_MEMORY_UTILIZATION", "1"),
-    "max-model-len": os.environ.get("MAX_MODEL_LEN", "2048")
-})
+
+# Erstelle eine Serve-App (bzw. -Deployment) mit den gewünschten Parametern
+env_args = {
+        "model": os.environ["MODEL_ID"],
+        "gpu-memory-utilization": os.environ["GPU_MEMORY_UTILIZATION"],
+        "download-dir": os.environ["DOWNLOAD_DIR"],
+        "max-model-len": os.environ["MAX_MODEL_LEN"],
+        "tensor-parallel-size": os.environ["TENSOR_PARALLELISM"],
+        "pipeline-parallel-size": os.environ["PIPELINE_PARALLELISM"],
+        # Falls du METRICS deaktivieren willst (nicht empfohlen), könntest du:
+        # "disable-metrics": "True"
+    }
+
+if os.environ.get("ENABLE_CHUNKED_PREFILL", "False").lower() == "true":
+    env_args["enable-chunked-prefill"] = "true"  # flag without value
+
+model = build_app(env_args)
