@@ -18,7 +18,7 @@ from vllm.entrypoints.openai.protocol import (
     ErrorResponse,
 )
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
-from vllm.entrypoints.openai.serving_models import LoRAModulePath, PromptAdapterPath
+from vllm.entrypoints.openai.serving_engine import LoRAModulePath, PromptAdapterPath
 from vllm.utils import FlexibleArgumentParser
 from vllm.entrypoints.logger import RequestLogger
 
@@ -73,7 +73,7 @@ class VLLMDeployment:
                 lora_modules=self.lora_modules,
                 prompt_adapters=self.prompt_adapters,
                 request_logger=self.request_logger,
-                chat_template=self.chat_template,
+                chat_template=self.chat_template
             )
         logger.info(f"Request: {request}")
         generator = await self.openai_serving_chat.create_chat_completion(
@@ -90,6 +90,8 @@ class VLLMDeployment:
             return JSONResponse(content=generator.model_dump())
 
 
+
+
 def parse_vllm_args(cli_args: Dict[str, str]):
     """Parses vLLM args based on CLI inputs.
 
@@ -103,9 +105,17 @@ def parse_vllm_args(cli_args: Dict[str, str]):
     parser = make_arg_parser(arg_parser)
     arg_strings = []
     for key, value in cli_args.items():
-        arg_strings.extend([f"--{key}", str(value)])
-    logger.info(arg_strings)
+        logger.info(f"Processing argument: --{key} with value: {value}")
+
+        if value is True:  # Håndter boolske flagg satt til True
+            arg_strings.append(f"--{key}")
+        elif value not in (None, "None"):  # Ignorer None eller 'None' som streng
+            arg_strings.extend([f"--{key}", str(value)])
+        else:
+            arg_strings.append(f"--{key}")
+
     parsed_args = parser.parse_args(args=arg_strings)
+
     return parsed_args
 
 
@@ -117,10 +127,25 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
 
     Supported engine arguments: https://docs.vllm.ai/en/latest/models/engine_args.html.
     """  # noqa: E501
+    if "accelerator" in cli_args.keys():
+        accelerator = cli_args.pop("accelerator")
+    else:
+        accelerator = "GPU"
     parsed_args = parse_vllm_args(cli_args)
+    logger.info(f"Parsed args: {parsed_args}") # ADDED LOGGING
     engine_args = AsyncEngineArgs.from_cli_args(parsed_args)
+    logger.info(f"Engine args: {engine_args}") # ADDED LOGGING
     engine_args.worker_use_ray = True
 
+    tp = engine_args.tensor_parallel_size
+    logger.info(f"Tensor parallelism = {tp}")
+    pg_resources = []
+    pg_resources.append({"CPU": 1})  # for the deployment replica
+    for i in range(tp):
+        pg_resources.append({"CPU": 1, accelerator: 1})  # for the vLLM actors
+
+    # We use the "STRICT_PACK" strategy below to ensure all vLLM actors are placed on
+    # the same Ray node.
     return VLLMDeployment.bind(
         engine_args,
         parsed_args.response_role,
@@ -129,7 +154,3 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
         cli_args.get("request_logger"),
         parsed_args.chat_template,
     )
-
-
-model = build_app(
-    {"model": os.environ['MODEL_ID'], "tensor-parallel-size": os.environ['TENSOR_PARALLELISM'], "pipeline-parallel-size": os.environ['PIPELINE_PARALLELISM']})
