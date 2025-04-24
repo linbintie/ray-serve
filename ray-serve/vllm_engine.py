@@ -1,12 +1,14 @@
 import os
+
+from typing import Dict, Optional, List
 import logging
-from typing import Dict, Optional
 
 from fastapi import FastAPI
 from starlette.requests import Request
 from starlette.responses import StreamingResponse, JSONResponse
 
 from ray import serve
+
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.entrypoints.openai.cli_args import make_arg_parser
@@ -16,11 +18,14 @@ from vllm.entrypoints.openai.protocol import (
     ErrorResponse,
 )
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
+from vllm.entrypoints.openai.serving_engine import LoRAModulePath, PromptAdapterPath
 from vllm.utils import FlexibleArgumentParser
+from vllm.entrypoints.logger import RequestLogger
 
 logger = logging.getLogger("ray.serve")
 
 app = FastAPI()
+
 
 @serve.deployment(name="VLLMDeployment")
 @serve.ingress(app)
@@ -29,12 +34,18 @@ class VLLMDeployment:
         self,
         engine_args: AsyncEngineArgs,
         response_role: str,
+        lora_modules: Optional[List[LoRAModulePath]] = None,
+        prompt_adapters: Optional[List[PromptAdapterPath]] = None,
+        request_logger: Optional[RequestLogger] = None,
         chat_template: Optional[str] = None,
     ):
         logger.info(f"Starting with engine args: {engine_args}")
         self.openai_serving_chat = None
         self.engine_args = engine_args
         self.response_role = response_role
+        self.lora_modules = lora_modules
+        self.prompt_adapters = prompt_adapters
+        self.request_logger = request_logger
         self.chat_template = chat_template
         self.engine = AsyncLLMEngine.from_engine_args(engine_args)
 
@@ -59,7 +70,10 @@ class VLLMDeployment:
                 model_config,
                 served_model_names,
                 self.response_role,
-                chat_template=self.chat_template,
+                lora_modules=self.lora_modules,
+                prompt_adapters=self.prompt_adapters,
+                request_logger=self.request_logger,
+                chat_template=self.chat_template
             )
         logger.info(f"Request: {request}")
         generator = await self.openai_serving_chat.create_chat_completion(
@@ -75,38 +89,68 @@ class VLLMDeployment:
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
 
+
+
+
 def parse_vllm_args(cli_args: Dict[str, str]):
-    """Parses vLLM args based on CLI inputs."""
+    """Parses vLLM args based on CLI inputs.
+
+    Currently uses argparse because vLLM doesn't expose Python models for all of the
+    config options we want to support.
+    """
     arg_parser = FlexibleArgumentParser(
         description="vLLM OpenAI-Compatible RESTful API server."
     )
+
     parser = make_arg_parser(arg_parser)
     arg_strings = []
     for key, value in cli_args.items():
-        arg_strings.extend([f"--{key}", str(value)])
-    logger.info(arg_strings)
+        logger.info(f"Processing argument: --{key} with value: {value}")
+
+        if value is True:  # Håndter boolske flagg satt til True
+            arg_strings.append(f"--{key}")
+        elif value not in (None, "None"):  # Ignorer None eller 'None' som streng
+            arg_strings.extend([f"--{key}", str(value)])
+        else:
+            arg_strings.append(f"--{key}")
+
     parsed_args = parser.parse_args(args=arg_strings)
+
     return parsed_args
 
+
 def build_app(cli_args: Dict[str, str]) -> serve.Application:
-    """Builds the Serve app based on CLI arguments."""
+    """Builds the Serve app based on CLI arguments.
+
+    See https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html#command-line-arguments-for-the-server
+    for the complete set of arguments.
+
+    Supported engine arguments: https://docs.vllm.ai/en/latest/models/engine_args.html.
+    """  # noqa: E501
+    if "accelerator" in cli_args.keys():
+        accelerator = cli_args.pop("accelerator")
+    else:
+        accelerator = "GPU"
     parsed_args = parse_vllm_args(cli_args)
+    logger.info(f"Parsed args: {parsed_args}") # ADDED LOGGING
     engine_args = AsyncEngineArgs.from_cli_args(parsed_args)
+    logger.info(f"Engine args: {engine_args}") # ADDED LOGGING
     engine_args.worker_use_ray = True
 
+    tp = engine_args.tensor_parallel_size
+    logger.info(f"Tensor parallelism = {tp}")
+    pg_resources = []
+    pg_resources.append({"CPU": 1})  # for the deployment replica
+    for i in range(tp):
+        pg_resources.append({"CPU": 1, accelerator: 1})  # for the vLLM actors
+
+    # We use the "STRICT_PACK" strategy below to ensure all vLLM actors are placed on
+    # the same Ray node.
     return VLLMDeployment.bind(
         engine_args,
         parsed_args.response_role,
+        parsed_args.lora_modules,
+        parsed_args.prompt_adapters,
+        cli_args.get("request_logger"),
         parsed_args.chat_template,
     )
-
-model = build_app(
-    {
-        "model": os.environ['MODEL_ID'],
-        "tensor-parallel-size": os.environ['TENSOR_PARALLELISM'],
-        "pipeline-parallel-size": os.environ['PIPELINE_PARALLELISM'],
-        "gpu-memory-utilization": os.environ['GPU_MEMORY_UTILIZATION'],
-        "max-model-len": os.environ['MAX_MODEL_LEN'],
-        "trust-remote-code": "true",
-    }
-)
