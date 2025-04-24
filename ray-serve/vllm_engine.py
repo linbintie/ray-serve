@@ -1,4 +1,5 @@
-# __serve_example_begin__
+import os
+
 from typing import Dict, Optional, List
 import logging
 
