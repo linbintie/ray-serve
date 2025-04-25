@@ -164,7 +164,7 @@ env_args = {
         "max-model-len": os.environ["MAX_MODEL_LEN"],
         "tensor-parallel-size": os.environ["TENSOR_PARALLELISM"],
         "pipeline-parallel-size": os.environ["PIPELINE_PARALLELISM"],
-        "max-num-seqs": 128,
+        "max-num-seqs": os.environ["MAX_NUM_SEQS"],
         # "enforce-eager": "True",
         # Falls du METRICS deaktivieren willst (nicht empfohlen), könntest du:
         # "disable-metrics": "True"
