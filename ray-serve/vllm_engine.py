@@ -161,10 +161,10 @@ env_args = {
         "model": os.environ["MODEL_ID"],
         "gpu-memory-utilization": os.environ["GPU_MEMORY_UTILIZATION"],
         "download-dir": os.environ["DOWNLOAD_DIR"],
-        "max-model-len": 24000,
+        "max-model-len": os.environ["MAX_MODEL_LEN"],
         "tensor-parallel-size": os.environ["TENSOR_PARALLELISM"],
         "pipeline-parallel-size": os.environ["PIPELINE_PARALLELISM"],
-        "max-num-seqs": 256,
+        "max-num-seqs": 128,
         # "enforce-eager": "True",
         # Falls du METRICS deaktivieren willst (nicht empfohlen), könntest du:
         # "disable-metrics": "True"
