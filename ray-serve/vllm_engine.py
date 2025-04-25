@@ -19,8 +19,10 @@ from vllm.entrypoints.openai.protocol import (
 )
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_models import (
+    BaseModelPath,
     LoRAModulePath,
-    PromptAdapterPath
+    PromptAdapterPath,
+    OpenAIServingModels,
 )
 
 from vllm.utils import FlexibleArgumentParser
@@ -30,7 +32,15 @@ logger = logging.getLogger("ray.serve")
 
 app = FastAPI()
 
-@serve.deployment(name="VLLMDeployment")
+
+@serve.deployment(
+    autoscaling_config={
+        "min_replicas": 1,
+        "max_replicas": 10,
+        "target_ongoing_requests": 5,
+    },
+    max_ongoing_requests=10,
+)
 @serve.ingress(app)
 class VLLMDeployment:
     def __init__(
@@ -42,9 +52,6 @@ class VLLMDeployment:
         request_logger: Optional[RequestLogger] = None,
         chat_template: Optional[str] = None,
     ):
-        # Löschen der Umgebungsvariable 'CUDA_VISIBLE_DEVICES'
-        if 'CUDA_VISIBLE_DEVICES' in os.environ:
-            del os.environ['CUDA_VISIBLE_DEVICES']
         logger.info(f"Starting with engine args: {engine_args}")
         self.openai_serving_chat = None
         self.engine_args = engine_args
@@ -67,20 +74,25 @@ class VLLMDeployment:
         if not self.openai_serving_chat:
             model_config = await self.engine.get_model_config()
             # Determine the name of the served model for the OpenAI client.
-            if self.engine_args.served_model_name is not None:
-                served_model_names = self.engine_args.served_model_name
-            else:
-                served_model_names = [self.engine_args.model]
+            models = OpenAIServingModels(
+                self.engine,
+                model_config,
+                [
+                    BaseModelPath(
+                        name=self.engine_args.model, model_path=self.engine_args.model
+                    )
+                ],
+                lora_modules=self.lora_modules,
+                prompt_adapters=self.prompt_adapters,
+            )
             self.openai_serving_chat = OpenAIServingChat(
                 self.engine,
                 model_config,
-                served_model_names,
+                models,
                 self.response_role,
-                lora_modules=self.lora_modules,
-                prompt_adapters=self.prompt_adapters,
                 request_logger=self.request_logger,
                 chat_template=self.chat_template,
-                chat_template_content_format='auto'
+                chat_template_content_format="auto",
             )
         logger.info(f"Request: {request}")
         generator = await self.openai_serving_chat.create_chat_completion(
@@ -124,11 +136,26 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
 
     Supported engine arguments: https://docs.vllm.ai/en/latest/models/engine_args.html.
     """  # noqa: E501
+    if "accelerator" in cli_args.keys():
+        accelerator = cli_args.pop("accelerator")
+    else:
+        accelerator = "GPU"
     parsed_args = parse_vllm_args(cli_args)
     engine_args = AsyncEngineArgs.from_cli_args(parsed_args)
     engine_args.worker_use_ray = True
 
-    return VLLMDeployment.bind(
+    tp = engine_args.tensor_parallel_size
+    logger.info(f"Tensor parallelism = {tp}")
+    pg_resources = []
+    pg_resources.append({"CPU": 1})  # for the deployment replica
+    for i in range(tp):
+        pg_resources.append({"CPU": 1, accelerator: 1})  # for the vLLM actors
+
+    # We use the "STRICT_PACK" strategy below to ensure all vLLM actors are placed on
+    # the same Ray node.
+    return VLLMDeployment.options(
+        placement_group_bundles=pg_resources, placement_group_strategy="STRICT_PACK"
+    ).bind(
         engine_args,
         parsed_args.response_role,
         parsed_args.lora_modules,
@@ -136,6 +163,7 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
         cli_args.get("request_logger"),
         parsed_args.chat_template,
     )
+
 
 
 # Erstelle eine Serve-App (bzw. -Deployment) mit den gewünschten Parametern
