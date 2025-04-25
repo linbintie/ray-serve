@@ -147,7 +147,7 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
     tp = engine_args.tensor_parallel_size
     logger.info(f"Tensor parallelism = {tp}")
     pg_resources = []
-    pg_resources.append({"CPU": 8})  # for the deployment replica
+    #pg_resources.append({"CPU": 8})  # for the deployment replica
     for i in range(tp):
         pg_resources.append({"CPU": 8, accelerator: 2})  # for the vLLM actors
 
