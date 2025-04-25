@@ -151,16 +151,16 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
     # for i in range(tp):
     #     pg_resources.append({"CPU": 8, accelerator: 2})  # for the vLLM actors
 
-    return VLLMDeployment.options(
-        placement_group_bundles=pg_resources, placement_group_strategy="STRICT_PACK"
-    ).bind(
-        engine_args,
-        parsed_args.response_role,
-        parsed_args.lora_modules,
-        parsed_args.prompt_adapters,
-        cli_args.get("request_logger"),
-        parsed_args.chat_template,
-    )
+    # return VLLMDeployment.options(
+    #     placement_group_bundles=pg_resources, placement_group_strategy="STRICT_PACK"
+    # ).bind(
+    #     engine_args,
+    #     parsed_args.response_role,
+    #     parsed_args.lora_modules,
+    #     parsed_args.prompt_adapters,
+    #     cli_args.get("request_logger"),
+    #     parsed_args.chat_template,
+    # )
 
     # We use the "STRICT_PACK" strategy below to ensure all vLLM actors are placed on
     # the same Ray node.
