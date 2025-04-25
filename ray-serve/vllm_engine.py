@@ -170,7 +170,7 @@ env_args = {
         # "disable-metrics": "True"
     }
 
-# if os.environ.get("ENABLE_CHUNKED_PREFILL", "False").lower() == "true":
-#     env_args["enable-chunked-prefill"] = "true"  # flag without value
+if os.environ.get("ENABLE_CHUNKED_PREFILL", "False").lower() == "true":
+    env_args["enable-chunked-prefill"] = "true"  # flag without value
 
 model = build_app(env_args)
