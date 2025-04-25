@@ -136,31 +136,31 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
 
     Supported engine arguments: https://docs.vllm.ai/en/latest/models/engine_args.html.
     """  # noqa: E501
-    # if "accelerator" in cli_args.keys():
-    #     accelerator = cli_args.pop("accelerator")
-    # else:
-    #     accelerator = "GPU"
+    if "accelerator" in cli_args.keys():
+        accelerator = cli_args.pop("accelerator")
+    else:
+        accelerator = "GPU"
     parsed_args = parse_vllm_args(cli_args)
     engine_args = AsyncEngineArgs.from_cli_args(parsed_args)
     engine_args.worker_use_ray = True
 
     tp = engine_args.tensor_parallel_size
     logger.info(f"Tensor parallelism = {tp}")
-    # pg_resources = []
-    # pg_resources.append({"CPU": 1})  # for the deployment replica
-    # for i in range(tp):
-    #     pg_resources.append({"CPU": 1, accelerator: 1})  # for the vLLM actors
+    pg_resources = []
+    pg_resources.append({"CPU": 8})  # for the deployment replica
+    for i in range(tp):
+        pg_resources.append({"CPU": 8, accelerator: 2})  # for the vLLM actors
 
-    # return VLLMDeployment.options(
-    #     placement_group_bundles=pg_resources, placement_group_strategy="STRICT_PACK"
-    # ).bind(
-    #     engine_args,
-    #     parsed_args.response_role,
-    #     parsed_args.lora_modules,
-    #     parsed_args.prompt_adapters,
-    #     cli_args.get("request_logger"),
-    #     parsed_args.chat_template,
-    # )
+    return VLLMDeployment.options(
+        placement_group_bundles=pg_resources, placement_group_strategy="STRICT_PACK"
+    ).bind(
+        engine_args,
+        parsed_args.response_role,
+        parsed_args.lora_modules,
+        parsed_args.prompt_adapters,
+        cli_args.get("request_logger"),
+        parsed_args.chat_template,
+    )
 
     # We use the "STRICT_PACK" strategy below to ensure all vLLM actors are placed on
     # the same Ray node.
