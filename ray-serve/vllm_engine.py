@@ -246,7 +246,7 @@ env_args = {
         "max-model-len": os.environ["MAX_MODEL_LEN"],
         "tensor-parallel-size": os.environ["TENSOR_PARALLELISM"],
         "pipeline-parallel-size": os.environ["PIPELINE_PARALLELISM"],
-        "enable-chunked-prefill": "true",
+        "enable-chunked-prefill": "",
         "trust_remote_code": "",
         "enable-reasoning": "",
         "reasoning-parser": "deepseek_r1",
