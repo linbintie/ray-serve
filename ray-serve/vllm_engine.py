@@ -246,7 +246,7 @@ env_args = {
         "tensor-parallel-size": os.environ["TENSOR_PARALLELISM"],
         "pipeline-parallel-size": os.environ["PIPELINE_PARALLELISM"],
         # "trust_remote_code": "true",
-        "enable-reasoning": "true",
+        "enable-reasoning": "True",
         "reasoning-parser": "deepseek_r1",
         # "cpu_offload_gb": "4"
         # "max-num-seqs": os.environ["MAX_NUM_SEQS"],
@@ -255,8 +255,8 @@ env_args = {
         # "disable-metrics": "True"
     }
 
-if int(os.environ["MAX_MODEL_LEN"]) > 32768:
-    env_args["rope-scaling"] = '{"rope_type":"yarn","factor":4.0,"original_max_position_embeddings":32768}'
+# if int(os.environ["MAX_MODEL_LEN"]) > 32768:
+#     env_args["rope-scaling"] = '{"rope_type":"yarn","factor":4.0,"original_max_position_embeddings":32768}'
 
 
 if os.environ.get("ENABLE_CHUNKED_PREFILL", "False").lower() == "true":
