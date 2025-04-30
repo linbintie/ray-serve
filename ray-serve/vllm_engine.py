@@ -249,12 +249,11 @@ env_args = {
         "tensor-parallel-size": os.environ["TENSOR_PARALLELISM"],
         "pipeline-parallel-size": os.environ["PIPELINE_PARALLELISM"],
         "max-num-seqs": os.environ["MAX_NUM_SEQS"],
+        "reasoning-parser": "deepseek_r1",
         # "enable-chunked-prefill": "True",
         # "trust-remote-code": "True",
         # "enable-reasoning": "True",
-        "reasoning-parser": "deepseek_r1",
         # "cpu_offload_gb": "4"
-        
         # "enforce-eager": "True",
         # Falls du METRICS deaktivieren willst (nicht empfohlen), könntest du:
         # "disable-metrics": "True"
