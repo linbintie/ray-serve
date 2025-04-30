@@ -3,9 +3,12 @@ import os
 from typing import Dict, Optional, List
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from starlette.requests import Request
 from starlette.responses import StreamingResponse, JSONResponse
+
+# For VLLM Metrics
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from ray import serve
 
@@ -25,6 +28,19 @@ from vllm.entrypoints.logger import RequestLogger
 logger = logging.getLogger("ray.serve")
 
 app = FastAPI()
+
+@app.get("/metrics")
+def metrics():
+    """
+    Dieser Endpoint gibt alle Metriken aus der Default-Registry
+    im Prometheus-Format zurück. Wenn vLLM seine Metriken korrekt
+    registriert, erscheinen sie hier unter `vllm:...`.
+    
+    Wichtig:
+    - Wenn du mehrere Ray-Replikas (oder mehrere Prozesse) hast,
+      brauchst du evtl. die Multiprozess-Sammlung. Siehe unten.
+    """
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @serve.deployment(name="VLLMDeployment")
