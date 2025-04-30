@@ -247,7 +247,7 @@ env_args = {
         "tensor-parallel-size": os.environ["TENSOR_PARALLELISM"],
         "pipeline-parallel-size": os.environ["PIPELINE_PARALLELISM"],
         "enable-chunked-prefill": "",
-        "trust_remote_code": "",
+        "trust-remote-code": "",
         "enable-reasoning": "",
         "reasoning-parser": "deepseek_r1",
         # "cpu_offload_gb": "4"
