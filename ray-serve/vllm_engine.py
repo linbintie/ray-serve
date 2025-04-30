@@ -1,4 +1,5 @@
 import os
+
 from typing import Dict, Optional, List
 import logging
 
@@ -10,24 +11,23 @@ from starlette.responses import StreamingResponse, JSONResponse
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from ray import serve
+
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.entrypoints.openai.cli_args import make_arg_parser
 from vllm.entrypoints.openai.protocol import (
     ChatCompletionRequest,
     ChatCompletionResponse,
-    CompletionRequest,
-    CompletionResponse,
     ErrorResponse,
 )
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
-from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
 from vllm.entrypoints.openai.serving_models import (
     BaseModelPath,
     LoRAModulePath,
     PromptAdapterPath,
     OpenAIServingModels,
 )
+
 from vllm.utils import FlexibleArgumentParser
 from vllm.entrypoints.logger import RequestLogger
 
@@ -69,7 +69,6 @@ class VLLMDeployment:
     ):
         logger.info(f"Starting with engine args: {engine_args}")
         self.openai_serving_chat = None
-        self.openai_serving_completion = None
         self.engine_args = engine_args
         self.response_role = response_role
         self.lora_modules = lora_modules
@@ -78,10 +77,18 @@ class VLLMDeployment:
         self.chat_template = chat_template
         self.engine = AsyncLLMEngine.from_engine_args(engine_args)
 
-    async def _initialize_serving(self):
-        """Initialize serving components if not already done."""
-        if not self.openai_serving_chat or not self.openai_serving_completion:
+    @app.post("/v1/chat/completions")
+    async def create_chat_completion(
+        self, request: ChatCompletionRequest, raw_request: Request
+    ):
+        """OpenAI-compatible HTTP endpoint.
+
+        API reference:
+            - https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html
+        """
+        if not self.openai_serving_chat:
             model_config = await self.engine.get_model_config()
+            # Determine the name of the served model for the OpenAI client.
             models = OpenAIServingModels(
                 self.engine,
                 model_config,
@@ -102,58 +109,7 @@ class VLLMDeployment:
                 chat_template=self.chat_template,
                 chat_template_content_format="auto",
             )
-            self.openai_serving_completion = OpenAIServingCompletion(
-                self.engine,
-                model_config,
-                models,
-                request_logger=self.request_logger,
-            )
-
-    @app.get("/v1")
-    async def get_v1_status(self):
-        """Return API status and available endpoints."""
-        return JSONResponse(
-            content={
-                "status": "ok",
-                "message": "vLLM OpenAI-compatible API",
-                "endpoints": [
-                    "/v1/chat/completions",
-                    "/v1/completions",
-                    "/v1/models",
-                ],
-                "model": self.engine_args.model,
-            },
-            status_code=200,
-        )
-
-    @app.get("/v1/models")
-    async def list_models(self):
-        """List available models, compatible with OpenAI API."""
-        await self._initialize_serving()
-        model_config = await self.engine.get_model_config()
-        model_name = self.engine_args.model
-        return JSONResponse(
-            content={
-                "object": "list",
-                "data": [
-                    {
-                        "id": model_name,
-                        "object": "model",
-                        "created": 0,
-                        "owned_by": "vLLM",
-                    }
-                ],
-            },
-            status_code=200,
-        )
-
-    @app.post("/v1/chat/completions")
-    async def create_chat_completion(
-        self, request: ChatCompletionRequest, raw_request: Request
-    ):
-        """OpenAI-compatible chat completion endpoint."""
-        await self._initialize_serving()
-        logger.info(f"Chat completion request: {request}")
+        logger.info(f"Request: {request}")
         generator = await self.openai_serving_chat.create_chat_completion(
             request, raw_request
         )
@@ -167,24 +123,6 @@ class VLLMDeployment:
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
 
-    @app.post("/v1/completions")
-    async def create_completion(self, request: CompletionRequest, raw_request: Request):
-        """OpenAI-compatible text completion endpoint."""
-        await self._initialize_serving()
-        logger.info(f"Text completion request: {request}")
-        generator = await self.openai_serving_completion.create_completion(
-            request, raw_request
-        )
-        if isinstance(generator, ErrorResponse):
-            return JSONResponse(
-                content=generator.model_dump(), status_code=generator.code
-            )
-        if request.stream:
-            return StreamingResponse(content=generator, media_type="text/event-stream")
-        else:
-            assert isinstance(generator, CompletionResponse)
-            return JSONResponse(content=generator.model_dump())
-
 
 def parse_vllm_args(cli_args: Dict[str, str]):
     """Parses vLLM args based on CLI inputs.
@@ -195,6 +133,7 @@ def parse_vllm_args(cli_args: Dict[str, str]):
     arg_parser = FlexibleArgumentParser(
         description="vLLM OpenAI-Compatible RESTful API server."
     )
+
     parser = make_arg_parser(arg_parser)
     arg_strings = []
     for key, value in cli_args.items():
