@@ -16,7 +16,6 @@ from vllm.entrypoints.openai.protocol import (
     CompletionRequest,
     CompletionResponse,
     ErrorResponse,
-    ModelList,
 )
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
