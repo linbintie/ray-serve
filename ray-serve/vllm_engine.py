@@ -259,7 +259,7 @@ env_args = {
 #     env_args["rope-scaling"] = '{"rope_type":"yarn","factor":4.0,"original_max_position_embeddings":32768}'
 
 
-if os.environ.get("ENABLE_CHUNKED_PREFILL", "False").lower() == "true":
-    env_args["enable-chunked-prefill"] = "true"  # flag without value
+# if os.environ.get("ENABLE_CHUNKED_PREFILL", "False").lower() == "true":
+#     env_args["enable-chunked-prefill"] = "true"  # flag without value
 
 model = build_app(env_args)
