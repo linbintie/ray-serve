@@ -1,13 +1,11 @@
+
 import os
 from typing import Dict, Optional, List
 import logging
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI
 from starlette.requests import Request
 from starlette.responses import StreamingResponse, JSONResponse
-
-# For VLLM Metrics
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from ray import serve
 from vllm.engine.arg_utils import AsyncEngineArgs
@@ -19,6 +17,7 @@ from vllm.entrypoints.openai.protocol import (
     CompletionRequest,
     CompletionResponse,
     ErrorResponse,
+    ModelList,
 )
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
@@ -35,18 +34,6 @@ logger = logging.getLogger("ray.serve")
 
 app = FastAPI()
 
-@app.get("/metrics")
-def metrics():
-    """
-    Dieser Endpoint gibt alle Metriken aus der Default-Registry
-    im Prometheus-Format zurück. Wenn vLLM seine Metriken korrekt
-    registriert, erscheinen sie hier unter `vllm:...`.
-    
-    Wichtig:
-    - Wenn du mehrere Ray-Replikas (oder mehrere Prozesse) hast,
-      brauchst du evtl. die Multiprozess-Sammlung. Siehe unten.
-    """
-    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 @serve.deployment(
     autoscaling_config={
@@ -259,9 +246,7 @@ env_args = {
         "max-model-len": os.environ["MAX_MODEL_LEN"],
         "tensor-parallel-size": os.environ["TENSOR_PARALLELISM"],
         "pipeline-parallel-size": os.environ["PIPELINE_PARALLELISM"],
-        "trust_remote_code": "",
-        "enable-reasoning": "",
-        "reasoning-parser": "deepseek_r1",
+        # "trust_remote_code": "true",
         # "cpu_offload_gb": "4"
         # "max-num-seqs": os.environ["MAX_NUM_SEQS"],
         # "enforce-eager": "True",
@@ -269,11 +254,7 @@ env_args = {
         # "disable-metrics": "True"
     }
 
-if int(os.environ["MAX_MODEL_LEN"]) > 32768:
-    env_args["rope-scaling"] = '{"rope_type":"yarn","factor":4.0,"original_max_position_embeddings":32768}'
-
-
-if os.environ.get("ENABLE_CHUNKED_PREFILL", "False").lower() == "true":
-    env_args["enable-chunked-prefill"] = "true"  # flag without value
+# if os.environ.get("ENABLE_CHUNKED_PREFILL", "False").lower() == "true":
+#     env_args["enable-chunked-prefill"] = "true"  # flag without value
 
 model = build_app(env_args)
