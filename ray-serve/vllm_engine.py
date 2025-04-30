@@ -245,7 +245,9 @@ env_args = {
         "max-model-len": os.environ["MAX_MODEL_LEN"],
         "tensor-parallel-size": os.environ["TENSOR_PARALLELISM"],
         "pipeline-parallel-size": os.environ["PIPELINE_PARALLELISM"],
-        # "trust_remote_code": "true",
+        "trust_remote_code": "true",
+        "enable-reasoning": "true",
+        "reasoning-parser": "deepseek_r1",
         # "cpu_offload_gb": "4"
         # "max-num-seqs": os.environ["MAX_NUM_SEQS"],
         # "enforce-eager": "True",
