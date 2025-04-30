@@ -206,6 +206,9 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
     parsed_args = parse_vllm_args(cli_args)
     engine_args = AsyncEngineArgs.from_cli_args(parsed_args)
     engine_args.worker_use_ray = True
+    engine_args.enable_chunked_prefill = True
+    engine_args.trust_remote_code = True
+    engine_args.enable_reasoning = True
 
     tp = engine_args.tensor_parallel_size
     logger.info(f"Tensor parallelism = {tp}")
@@ -246,9 +249,6 @@ env_args = {
         "max-model-len": os.environ["MAX_MODEL_LEN"],
         "tensor-parallel-size": os.environ["TENSOR_PARALLELISM"],
         "pipeline-parallel-size": os.environ["PIPELINE_PARALLELISM"],
-        "enable-chunked-prefill": "true",
-        "trust-remote-code": "true",
-        "enable-reasoning": "true",
         "reasoning-parser": "deepseek_r1",
         # "cpu_offload_gb": "4"
         # "max-num-seqs": os.environ["MAX_NUM_SEQS"],
