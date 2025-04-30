@@ -17,7 +17,6 @@ from vllm.entrypoints.openai.protocol import (
     CompletionRequest,
     CompletionResponse,
     ErrorResponse,
-    ModelList,
 )
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
@@ -240,7 +239,7 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
     )
 
 
-
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 # Erstelle eine Serve-App (bzw. -Deployment) mit den gewünschten Parametern
 env_args = {
         "model": os.environ["MODEL_ID"],
