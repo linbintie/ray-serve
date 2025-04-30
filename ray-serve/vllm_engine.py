@@ -245,7 +245,7 @@ env_args = {
         "max-model-len": os.environ["MAX_MODEL_LEN"],
         "tensor-parallel-size": os.environ["TENSOR_PARALLELISM"],
         "pipeline-parallel-size": os.environ["PIPELINE_PARALLELISM"],
-        "trust_remote_code": "true",
+        # "trust_remote_code": "true",
         "enable-reasoning": "true",
         "reasoning-parser": "deepseek_r1",
         # "cpu_offload_gb": "4"
@@ -255,7 +255,11 @@ env_args = {
         # "disable-metrics": "True"
     }
 
-# if os.environ.get("ENABLE_CHUNKED_PREFILL", "False").lower() == "true":
-#     env_args["enable-chunked-prefill"] = "true"  # flag without value
+if int(os.environ["MAX_MODEL_LEN"]) > 32768:
+    env_args["rope-scaling"] = '{"rope_type":"yarn","factor":4.0,"original_max_position_embeddings":32768}'
+
+
+if os.environ.get("ENABLE_CHUNKED_PREFILL", "False").lower() == "true":
+    env_args["enable-chunked-prefill"] = "true"  # flag without value
 
 model = build_app(env_args)
