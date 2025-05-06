@@ -207,7 +207,7 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
     engine_args.worker_use_ray = True
     # engine_args.enable_chunked_prefill = True
     engine_args.trust_remote_code = True
-    # engine_args.enable_reasoning = True
+    engine_args.enable_reasoning = True
 
     tp = engine_args.tensor_parallel_size
     logger.info(f"Tensor parallelism = {tp}")
@@ -249,7 +249,7 @@ env_args = {
         "tensor-parallel-size": os.environ["TENSOR_PARALLELISM"],
         "pipeline-parallel-size": os.environ["PIPELINE_PARALLELISM"],
         "max-num-seqs": os.environ["MAX_NUM_SEQS"],
-        # "reasoning-parser": "deepseek_r1",
+        "reasoning-parser": "deepseek_r1",
         # "quantization": "awq",
         # "dtype": "half",
         # "enable-chunked-prefill": "True",
